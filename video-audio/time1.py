@@ -10,7 +10,9 @@ from google import genai
 from google.genai import types
 from PIL import Image
 from io import BytesIO
-
+from dotenv import load_dotenv
+import uuid
+load_dotenv()
 # Global variable to track current API key index
 current_api_key_index = 0
 api_keys = [
@@ -21,8 +23,7 @@ api_keys = [
 AZURE_ENDPOINT = "https://hara-md2td469-westus3.cognitiveservices.azure.com/"
 AZURE_DEPLOYMENT = "gpt-image-1"
 AZURE_API_VERSION = "2025-04-01-preview"
-AZURE_API_KEY = "ED8577EwFs8pfLmI8M2tusvBFaQKKy56YQDTnrhK1aIjBtZlsdv6JQQJ99BGACMsfrFXJ3w3AAAAACOGy4vI"  # Set this environment variable
-
+AZURE_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
 def set_azure_api_key(api_key):
     """Set Azure API key if not found in environment"""
     global AZURE_API_KEY
