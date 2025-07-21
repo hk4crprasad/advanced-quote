@@ -1,0 +1,13 @@
+# Core dependencies for enhanced video generation
+google-genai>=0.8.0
+pillow>=10.0.0
+moviepy>=2.0.0
+librosa>=0.10.0
+
+# LangChain for story generation
+langchain>=0.1.0
+langchain-openai>=0.0.8
+
+# Optional: for better audio/video processing
+numpy>=1.24.0
+scipy>=1.11.0

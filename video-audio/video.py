@@ -2,7 +2,8 @@ import json
 import re
 import os
 # Updated imports for MoviePy v2.0+
-from moviepy import VideoFileClip, TextClip, ColorClip, CompositeVideoClip, concatenate_videoclips, AudioFileClip
+from moviepy import VideoFileClip, TextClip, ColorClip, CompositeVideoClip, concatenate_videoclips, AudioFileClip, ImageClip
+from moviepy import vfx
 
 def timestamp_to_seconds(timestamp):
     """Convert mm:ss.sss format to seconds"""
@@ -153,8 +154,7 @@ def create_simple_text_video(json_data, output_path="simple_text_video.mp4",
     background = ColorClip(
         size=(video_width, video_height), 
         color=(0, 0, 0),  # Pure black
-        duration=total_duration
-    )
+    ).with_duration(total_duration)
     
     print("Created background clip")
     
@@ -303,6 +303,177 @@ def create_simple_text_video(json_data, output_path="simple_text_video.mp4",
     print(f"✅ Video saved successfully to: {output_path}")
     return output_path
 
+def create_video_with_background_images(json_data, image_metadata, output_path="enhanced_video.mp4",
+                                      video_width=720, video_height=1280, font_size=60, 
+                                      auto_download_hindi_font=True, audio_path=None, transition_duration=0.5):
+    """
+    Create video with background images and smooth transitions
+    """
+    print("Creating enhanced video with background images...")
+    
+    # Font setup (reuse from create_simple_text_video)
+    hindi_font = None
+    if auto_download_hindi_font:
+        hindi_font = download_hindi_font()
+    
+    system_font = find_system_font()
+    chosen_font = hindi_font if hindi_font else system_font
+    print(f"Using font: {chosen_font}")
+    
+    # Parse JSON data
+    if isinstance(json_data, str):
+        cleaned_json = clean_json_string(json_data)
+        try:
+            data = json.loads(cleaned_json)
+        except json.JSONDecodeError as e:
+            print(f"JSON parsing error: {e}")
+            return None
+    else:
+        data = json_data
+    
+    # Find total duration
+    last_segment = max(data, key=lambda x: timestamp_to_seconds(x['time_end']))
+    total_duration = timestamp_to_seconds(last_segment['time_end'])
+    print(f"Total video duration: {total_duration:.2f} seconds")
+    
+    # Create background image clips with smooth transitions
+    background_clips = []
+    
+    if image_metadata and len(image_metadata) > 0:
+        print(f"Processing {len(image_metadata)} background images...")
+        
+        for i, img_data in enumerate(image_metadata):
+            if 'image_path' not in img_data or not os.path.exists(img_data['image_path']):
+                print(f"Skipping missing image {i}")
+                continue
+                
+            # Calculate timing
+            start_time = timestamp_to_seconds(img_data['time_start']) if ':' in str(img_data['time_start']) else float(img_data.get('time_start', 0))
+            duration = float(img_data.get('duration', 4.0))
+            
+            # Create image clip
+            try:
+                img_clip = (ImageClip(img_data['image_path'])
+                           .with_duration(duration + transition_duration)
+                           .with_start(start_time))
+                
+                # Add fade transitions for smooth effect
+                if i > 0:  # Add fade in for all except first image
+                    img_clip = img_clip.with_effects([vfx.FadeIn(transition_duration)])
+                if i < len(image_metadata) - 1:  # Add fade out for all except last image
+                    img_clip = img_clip.with_effects([vfx.FadeOut(transition_duration)])
+                
+                background_clips.append(img_clip)
+                print(f"✅ Added background image {i+1}: {start_time:.1f}s - {start_time+duration:.1f}s")
+                
+            except Exception as e:
+                print(f"❌ Error processing image {i}: {e}")
+    
+    # Create fallback black background for any gaps
+    background_base = ColorClip(
+        size=(video_width, video_height), 
+        color=(0, 0, 0),
+    ).with_duration(total_duration + 2)
+    
+    # Create text clips (reuse logic from create_simple_text_video)
+    text_clips = []
+    successful_clips = 0
+    
+    for i, segment in enumerate(data):
+        start_time = timestamp_to_seconds(segment['time_start'])
+        end_time = timestamp_to_seconds(segment['time_end'])
+        text = segment['text']
+        
+        # Create text clip with multiple fallback methods
+        text_clip = None
+        
+        # Try with chosen font first
+        if chosen_font:
+            try:
+                text_clip = TextClip(
+                    text=text,
+                    font_size=font_size,
+                    color=(255, 255, 255),
+                    font=chosen_font,
+                    stroke_color=(0, 0, 0),
+                    stroke_width=2
+                )
+            except Exception as e:
+                print(f"Font failed: {e}")
+        
+        # Fallback methods
+        if not text_clip:
+            try:
+                text_clip = TextClip(
+                    text=text,
+                    font_size=font_size,
+                    color=(255, 255, 255),
+                    stroke_color=(0, 0, 0),
+                    stroke_width=2
+                )
+            except Exception as e:
+                print(f"Text clip creation failed for segment {i+1}: {e}")
+                continue
+        
+        # Set timing and position
+        if text_clip:
+            try:
+                clip_duration = end_time - start_time
+                if clip_duration > 0:
+                    text_clip = (text_clip
+                               .with_duration(clip_duration)
+                               .with_start(start_time)
+                               .with_position('center'))
+                    
+                    text_clips.append(text_clip)
+                    successful_clips += 1
+            except Exception as e:
+                print(f"Error setting timing for segment {i+1}: {e}")
+    
+    print(f"Successfully created {successful_clips}/{len(data)} text clips")
+    
+    if successful_clips == 0:
+        print("ERROR: No text clips were created!")
+        return None
+    
+    # Composite all clips: base background + image backgrounds + text
+    all_clips = [background_base] + background_clips + text_clips
+    final_video = CompositeVideoClip(all_clips)
+    
+    # Add audio if provided
+    if audio_path and os.path.exists(audio_path):
+        try:
+            print(f"Adding audio from: {audio_path}")
+            audio_clip = AudioFileClip(audio_path)
+            
+            if audio_clip.duration > total_duration:
+                print(f"Trimming audio to match video duration ({total_duration:.2f}s)")
+                audio_clip = audio_clip.subclipped(0, total_duration)
+            
+            final_video = final_video.with_audio(audio_clip)
+            print("✅ Audio added successfully")
+        except Exception as e:
+            print(f"⚠️ Warning: Could not add audio - {e}")
+    
+    # Write video file
+    print(f"Writing enhanced video to {output_path}...")
+    print("This may take several minutes due to image processing...")
+    
+    final_video.write_videofile(
+        output_path, 
+        fps=24,
+        codec='libx264',
+        preset='medium',  # Better quality for images
+        logger='bar'
+    )
+    
+    # Cleanup image clips
+    for clip in background_clips:
+        clip.close()
+    
+    print(f"✅ Enhanced video saved successfully to: {output_path}")
+    return output_path
+
 def create_video_from_audio_timestamps(audio_path, language="Hindi", output_video="text_video.mp4"):
     """Complete pipeline: Extract timestamps from audio and create simple text video with audio"""
     try:
@@ -321,54 +492,3 @@ def create_video_from_audio_timestamps(audio_path, language="Hindi", output_vide
         print("Failed to extract timestamps")
         return None
 
-# Test function to verify everything works
-def test_simple_video():
-    """Test with minimal data to verify the system works"""
-    test_data = [
-        {
-            "time_start": "00:00.000",
-            "time_end": "00:02.000", 
-            "text": "Hello World"
-        },
-        {
-            "time_start": "00:02.000",
-            "time_end": "00:04.000",
-            "text": "नमस्ते दुनिया"  # Hindi text
-        },
-        {
-            "time_start": "00:04.000",
-            "time_end": "00:06.000",
-            "text": "बधाई हो।"  # More Hindi text
-        }
-    ]
-    
-    print("Creating test video with Hindi text...")
-    result = create_simple_text_video(test_data, "test_hindi.mp4", font_size=80)
-    if result:
-        print("✅ Test successful! Check test_hindi.mp4")
-    else:
-        print("❌ Test failed!")
-
-def install_hindi_fonts_instructions():
-    """Print instructions for installing Hindi fonts"""
-    print("\n🔤 HINDI FONT INSTALLATION INSTRUCTIONS:")
-    print("\n📦 Option 1 - Install via package manager:")
-    print("   Ubuntu/Debian:")
-    print("   sudo apt update")
-    print("   sudo apt install fonts-noto-devanagari fonts-lohit-devanagari")
-    print("\n   CentOS/RHEL/Fedora:")
-    print("   sudo dnf install google-noto-sans-devanagari-fonts")
-    
-    print("\n💾 Option 2 - Download manually:")
-    print("   The script will auto-download NotoSansDevanagari-Regular.ttf")
-    
-    print("\n🎯 Option 3 - Use custom font:")
-    print("   Download any Hindi font (.ttf file) and place it in the script directory")
-    
-    print("\n✅ The script tries all these methods automatically!")
-    print("=" * 60)
-
-# FOR YOUR USE CASE WITH HINDI FONTS:
-# create_video_from_audio_timestamps("/home/cp/advanced-quote/WhatsApp Video 2025-07-20 at 20.23.16_c77606b7.mp3", 
-#                                    language="Hindi", 
-#                                    output_video="hindi_video.mp4")

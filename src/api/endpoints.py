@@ -15,10 +15,12 @@ from ..models.schemas import (
     BatchResponse, AnalyticsResponse, HealthResponse,
     RandomChoiceRequest, RandomChoiceResponse,
     YouTubeUploadRequest, YouTubeUploadResponse,
+    StoryRequest, StoryResponse, StoryType,
     AudienceType, ThemeType, FormatType, ImageTheme, ImageModel, YouTubePrivacy
 )
 from ..services.content_orchestrator import ContentOrchestrator
 from ..services.youtube_service import YouTubeService
+from ..services.story_service import StoryService
 from ..generators import ImageGenerator, VideoGenerator
 
 class QuoteAPI:
@@ -36,6 +38,7 @@ class QuoteAPI:
         self.image_generator = ImageGenerator()
         self.video_generator = VideoGenerator()
         self.youtube_service = YouTubeService()
+        self.story_service = StoryService()
         
         # Setup routes
         self._setup_routes()
@@ -241,6 +244,24 @@ class QuoteAPI:
                 )
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Random choice failed: {str(e)}")
+        
+        @self.app.post("/generate-story", response_model=StoryResponse)
+        async def generate_story(request: StoryRequest):
+            """Generate complete story content with video, captions, and metadata"""
+            try:
+                # Generate story content using the story service
+                result = self.story_service.generate_story_content(
+                    story_type=request.story_type,
+                    custom_job=request.custom_job,
+                    custom_location=request.custom_location,
+                    custom_theme=request.custom_theme,
+                    language=request.language
+                )
+                
+                return StoryResponse(**result)
+                
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Story generation failed: {str(e)}")
         
         @self.app.get("/health", response_model=HealthResponse)
         async def health_check():

@@ -175,3 +175,33 @@ class YouTubeUploadResponse(BaseModel):
     privacy: str
     message: str
     error: Optional[str] = None
+
+# Story Generation Enums
+class StoryType(str, Enum):
+    random = "random"
+    job = "job"
+    horror = "horror"
+
+# Story Generation Models
+class StoryRequest(BaseModel):
+    """Request model for story generation"""
+    story_type: StoryType = StoryType.random
+    custom_job: Optional[str] = None
+    custom_location: Optional[str] = None
+    custom_theme: Optional[str] = None
+    language: str = "Hindi"
+
+class StoryResponse(BaseModel):
+    """Response model for generated story content"""
+    story_text: str
+    story_type: str
+    video_url: Optional[str] = None
+    audio_filename: Optional[str] = None
+    instagram_caption: str
+    youtube_title: str
+    youtube_description: str
+    youtube_tags: List[str]
+    hashtags: List[str]
+    success: bool
+    message: str
+    error: Optional[str] = None

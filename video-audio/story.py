@@ -31,8 +31,10 @@ llm = ChatOpenAI(
     temperature=0.8  # Higher temperature for more creative stories
 )
 
-# Create a comprehensive prompt template for horror job stories
-horror_story_template = """
+# Create comprehensive prompt templates for different horror story types
+
+# Template 1: Job Horror Stories
+horror_job_story_template = """
 आपका काम एक डरावनी कहानी लिखना है जो एक नई नौकरी के बारे में है।
 
 कहानी की संरचना:
@@ -54,8 +56,31 @@ horror_story_template = """
 कृपया एक छोटी कहानी लिखें जो 1 मिनट में पढ़ी जा सके।
 """
 
-# Create the prompt template
-prompt = ChatPromptTemplate.from_template(horror_story_template)
+# Template 2: General Horror Stories
+horror_general_story_template = """
+एक डरावनी कहानी लिखें जो निम्नलिखित विषय पर आधारित हो।
+
+कहानी की संरचना:
+1. एक सामान्य स्थिति से शुरुआत
+2. धीरे-धीरे अजीब घटनाओं का वर्णन
+3. तनाव बढ़ाते हुए रहस्यमय तत्व
+4. अलौकिक या डरावने मोड़
+5. दर्शकों को डराने वाला अंत
+
+विषय: {theme}
+स्थान: {setting}
+मुख्य तत्व: {element}
+
+भाषा: हिंदी में लिखें
+टोन: डरावना, रोमांचक, तनावपूर्ण
+लंबाई: 100-150 शब्द (1 मिनट से कम पढ़ने का समय)
+
+कृपया एक छोटी और प्रभावशाली कहानी लिखें।
+"""
+
+# Create the prompt templates
+job_prompt = ChatPromptTemplate.from_template(horror_job_story_template)
+general_prompt = ChatPromptTemplate.from_template(horror_general_story_template)
 
 # Create the processing chain (compatible with older LangChain versions)
 def create_chain(prompt_template, llm):
@@ -71,7 +96,8 @@ def create_chain(prompt_template, llm):
             return response.content if hasattr(response, 'content') else str(response)
         return type('Chain', (), {'invoke': chain_invoke})()
 
-chain = create_chain(prompt, llm)
+# Remove the old chain creation with undefined prompt
+# chain = create_chain(prompt, llm)
 
 # Predefined job types, locations, and shifts for variety
 job_types = [
@@ -104,27 +130,108 @@ shift_times = [
     "रात 12 से सुबह 8 बजे तक"
 ]
 
-def generate_horror_story(custom_job=None, custom_location=None, custom_shift=None):
+# General horror story elements
+horror_themes = [
+    "भूतिया फोन कॉल",
+    "गुमशुदा बच्चे",
+    "पुराना घर",
+    "जादुई आईना",
+    "श्रापित वस्तु",
+    "अजनबी का पीछा",
+    "रात का सफर",
+    "टूटा हुआ लिफ्ट",
+    "अंधेरी सुरंग"
+]
+
+horror_settings = [
+    "एक पुराने मकान में",
+    "घने जंगल के बीच",
+    "टूटी हुई सड़क पर",
+    "खाली अस्पताल में",
+    "रेगिस्तान के बीच",
+    "समुद्र के किनारे",
+    "पहाड़ की चोटी पर",
+    "भूमिगत तहखाने में",
+    "परित्यक्त स्कूल में"
+]
+
+horror_elements = [
+    "अदृश्य आवाजें",
+    "खुद से हिलने वाली चीजें",
+    "गायब होते लोग",
+    "समय का रुक जाना",
+    "छायाओं का नृत्य",
+    "खून के निशान",
+    "टूटे हुए शीशे",
+    "ठंडी हवा का झोंका",
+    "अजीब महक"
+]
+
+# Story type selection
+STORY_TYPES = ["job", "general"]
+
+def generate_job_horror_story(custom_job=None, custom_location=None, custom_shift=None):
     """
-    Generate a horror story with random or custom parameters
+    Generate a job-based horror story with random or custom parameters
     """
     job = custom_job or random.choice(job_types)
     location = custom_location or random.choice(locations)
     shift = custom_shift or random.choice(shift_times)
     
+    job_chain = create_chain(job_prompt, llm)
+    
     try:
-        story = chain.invoke({
+        story = job_chain.invoke({
             "job_type": job,
             "location": location, 
             "shift_time": shift
         })
         return story
     except Exception as e:
-        return f"कहानी बनाने में त्रुटि: {str(e)}"
+        return f"जॉब कहानी बनाने में त्रुटि: {str(e)}"
+
+def generate_general_horror_story(custom_theme=None, custom_setting=None, custom_element=None):
+    """
+    Generate a general horror story with random or custom parameters
+    """
+    theme = custom_theme or random.choice(horror_themes)
+    setting = custom_setting or random.choice(horror_settings)
+    element = custom_element or random.choice(horror_elements)
+    
+    general_chain = create_chain(general_prompt, llm)
+    
+    try:
+        story = general_chain.invoke({
+            "theme": theme,
+            "setting": setting,
+            "element": element
+        })
+        return story
+    except Exception as e:
+        return f"सामान्य कहानी बनाने में त्रुटि: {str(e)}"
+
+def generate_random_horror_story():
+    """
+    Randomly select between job horror story or general horror story
+    """
+    story_type = random.choice(STORY_TYPES)
+    
+    if story_type == "job":
+        print("🏢 Generating Job Horror Story...")
+        return generate_job_horror_story()
+    else:
+        print("👻 Generating General Horror Story...")
+        return generate_general_horror_story()
+
+def generate_horror_story(custom_job=None, custom_location=None, custom_shift=None):
+    """
+    Backward compatibility function - generates random story type
+    """
+    return generate_random_horror_story()
 
 def generate_multiple_stories(count=3):
     """
-    Generate multiple horror stories
+    Generate multiple horror stories with random types
     """
     stories = []
     for i in range(count):
@@ -132,7 +239,7 @@ def generate_multiple_stories(count=3):
         print(f"कहानी #{i+1}")
         print('='*50)
         
-        story = generate_horror_story()
+        story = generate_random_horror_story()
         stories.append(story)
         print(story)
         
@@ -199,3 +306,28 @@ class HorrorStoryGenerator:
 
 # Initialize the enhanced generator
 enhanced_generator = HorrorStoryGenerator(llm)
+
+# Additional utility functions
+def get_story_type_examples():
+    """Show examples of what each story type generates"""
+    print("📖 Story Type Examples:")
+    print("\n1. Job Horror Story:")
+    print("   - बधाई हो! आपको रेडियो स्टेशन की नौकरी मिली है...")
+    print("   - Focus: Workplace horror with specific rules and schedules")
+    
+    print("\n2. General Horror Story:")
+    print("   - भूतिया फोन कॉल के बारे में कहानी...")
+    print("   - Focus: Traditional horror themes with supernatural elements")
+
+def generate_specific_type_story(story_type="random"):
+    """
+    Generate a specific type of horror story
+    Args:
+        story_type: "job", "general", or "random"
+    """
+    if story_type == "job":
+        return generate_job_horror_story()
+    elif story_type == "general":
+        return generate_general_horror_story()
+    else:
+        return generate_random_horror_story()
