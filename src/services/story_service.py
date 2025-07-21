@@ -217,6 +217,22 @@ class StoryService:
             # Generate video asynchronously
             video_result = await self._generate_video_async(styled_story, str(video_path), language)
             
+            # Upload video to Azure Blob if generation was successful
+            video_url = None
+            if video_result and video_path.exists():
+                try:
+                    # Upload to Azure Blob Storage
+                    blob_name = f"{Config.AZURE_VIDEO_FOLDER}/{video_filename}"
+                    video_url = await self._upload_video_to_blob_async(str(video_path), blob_name)
+                    
+                    # Clean up local file after successful upload
+                    video_path.unlink()
+                    print(f"✅ Video uploaded to Azure: {video_url}")
+                except Exception as e:
+                    print(f"⚠️ Failed to upload video to Azure: {e}")
+                    # Keep local path as fallback
+                    video_url = str(video_path)
+            
             # Step 3: Upload video to Azure Blob Storage if video was generated
             video_url = None
             if video_result and video_path.exists():
@@ -323,6 +339,24 @@ class StoryService:
             except Exception as e:
                 print(f"❌ Video generation failed: {e}")
                 return None
+    
+    async def _generate_video_async(self, styled_story: str, video_path: str, language: str) -> str:
+        """Generate video asynchronously in background thread"""
+        loop = asyncio.get_event_loop()
+        
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            return await loop.run_in_executor(
+                executor, complete_story_to_video_workflow, styled_story, video_path, language
+            )
+    
+    async def _upload_video_to_blob_async(self, video_path: str, blob_name: str) -> str:
+        """Upload video to Azure Blob Storage asynchronously"""
+        loop = asyncio.get_event_loop()
+        
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            return await loop.run_in_executor(
+                executor, self.blob_manager.upload_file, video_path, blob_name
+            )
     
     def _generate_story_by_type(self, story_type: str, custom_job: Optional[str] = None,
                                custom_location: Optional[str] = None, custom_theme: Optional[str] = None) -> str:

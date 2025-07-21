@@ -4,6 +4,7 @@ FastAPI endpoints for the Advanced Quote Generator System
 """
 
 import random
+import asyncio
 from datetime import datetime
 from typing import List
 from fastapi import FastAPI, HTTPException
@@ -15,7 +16,7 @@ from ..models.schemas import (
     BatchResponse, AnalyticsResponse, HealthResponse,
     RandomChoiceRequest, RandomChoiceResponse,
     YouTubeUploadRequest, YouTubeUploadResponse,
-    StoryRequest, StoryResponse, StoryType,
+    StoryRequest, StoryResponse, StoryType, StoryJobResponse, StoryStatusResponse, JobStatus,
     AudienceType, ThemeType, FormatType, ImageTheme, ImageModel, YouTubePrivacy
 )
 from ..services.content_orchestrator import ContentOrchestrator
@@ -245,12 +246,12 @@ class QuoteAPI:
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Random choice failed: {str(e)}")
         
-        @self.app.post("/generate-story", response_model=StoryResponse)
-        async def generate_story(request: StoryRequest):
-            """Generate complete story content with video, captions, and metadata"""
+        @self.app.post("/generate-story", response_model=StoryJobResponse)
+        async def create_story_job(request: StoryRequest):
+            """Create a new story generation job"""
             try:
-                # Generate story content using the story service (async)
-                result = await self.story_service.generate_story_content(
+                # Create job and return job ID
+                result = self.story_service.create_story_job(
                     story_type=request.story_type,
                     custom_job=request.custom_job,
                     custom_location=request.custom_location,
@@ -258,10 +259,46 @@ class QuoteAPI:
                     language=request.language
                 )
                 
-                return StoryResponse(**result)
+                # Start processing the job in background
+                job_id = result["job_id"]
+                if job_id:
+                    asyncio.create_task(self.story_service.process_job(job_id))
+                
+                return StoryJobResponse(**result)
                 
             except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Story generation failed: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Story job creation failed: {str(e)}")
+        
+        @self.app.get("/generate-story-status/{job_id}", response_model=StoryStatusResponse)
+        async def get_story_status(job_id: str):
+            """Get the status of a story generation job"""
+            try:
+                result = self.story_service.get_job_status(job_id)
+                return StoryStatusResponse(**result)
+                
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Failed to get job status: {str(e)}")
+        
+        @self.app.get("/generate-story/{job_id}", response_model=StoryResponse)
+        async def get_story_result(job_id: str):
+            """Get the result of a completed story generation job"""
+            try:
+                result = self.story_service.get_job_result(job_id)
+                
+                if not result.get("success"):
+                    if "not found" in result.get("message", "").lower():
+                        raise HTTPException(status_code=404, detail=result.get("message", "Job not found"))
+                    elif "not completed" in result.get("message", "").lower():
+                        raise HTTPException(status_code=202, detail=result.get("message", "Job not completed"))
+                    else:
+                        raise HTTPException(status_code=500, detail=result.get("error", "Unknown error"))
+                
+                return StoryResponse(**result)
+                
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Failed to get job result: {str(e)}")
         
         @self.app.get("/health", response_model=HealthResponse)
         async def health_check():
