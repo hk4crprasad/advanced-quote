@@ -75,7 +75,7 @@ def download_hindi_font():
     import os
     
     font_url = "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Regular.ttf"
-    font_filename = "NotoSansDevanagari-Regular.ttf"
+    font_filename = "Hind-Medium.ttf"
     
     if not os.path.exists(font_filename):
         try:
@@ -167,7 +167,7 @@ def create_simple_text_video(json_data, output_path="simple_text_video.mp4",
         end_time = timestamp_to_seconds(segment['time_end'])
         text = segment['text']
         
-        print(f"Processing segment {i+1}/{len(data)}: '{text}' at {start_time:.1f}s-{end_time:.1f}s")
+        #print(f"Processing segment {i+1}/{len(data)}: '{text}' at {start_time:.1f}s-{end_time:.1f}s")
         
         # Try multiple approaches to create text clip
         text_clip = None
@@ -181,7 +181,7 @@ def create_simple_text_video(json_data, output_path="simple_text_video.mp4",
                     color=(255, 255, 255),
                     font=chosen_font
                 )
-                print(f"✓ Created with chosen font: {chosen_font}")
+                #print(f"✓ Created with chosen font: {chosen_font}")
             except Exception as e:
                 print(f"✗ Chosen font failed: {e}")
         
@@ -203,7 +203,7 @@ def create_simple_text_video(json_data, output_path="simple_text_video.mp4",
                         color=(255, 255, 255),
                         font=font_name
                     )
-                    print(f"✓ Created with Hindi font: {font_name}")
+                    #print(f"✓ Created with Hindi font: {font_name}")
                     break
                 except:
                     continue
@@ -218,7 +218,7 @@ def create_simple_text_video(json_data, output_path="simple_text_video.mp4",
                         color=(255, 255, 255),
                         font=font_name
                     )
-                    print(f"✓ Created with font: {font_name}")
+                    #print(f"✓ Created with font: {font_name}")
                     break
                 except:
                     continue
@@ -248,7 +248,7 @@ def create_simple_text_video(json_data, output_path="simple_text_video.mp4",
                     
                     text_clips.append(text_clip)
                     successful_clips += 1
-                    print(f"✓ Successfully added text clip {i+1}")
+                    #   print(f"✓ Successfully added text clip {i+1}")
                 else:
                     print(f"✗ Skipped segment {i+1} - invalid duration")
             except Exception as e:
