@@ -182,6 +182,12 @@ class StoryType(str, Enum):
     job = "job"
     horror = "horror"
 
+class JobStatus(str, Enum):
+    pending = "pending"
+    in_progress = "in_progress"
+    completed = "completed"
+    failed = "failed"
+
 # Story Generation Models
 class StoryRequest(BaseModel):
     """Request model for story generation"""
@@ -190,6 +196,23 @@ class StoryRequest(BaseModel):
     custom_location: Optional[str] = None
     custom_theme: Optional[str] = None
     language: str = "Hindi"
+
+class StoryJobResponse(BaseModel):
+    """Response model for story job creation"""
+    job_id: str
+    status: JobStatus
+    message: str
+    created_at: str
+
+class StoryStatusResponse(BaseModel):
+    """Response model for story job status"""
+    job_id: str
+    status: JobStatus
+    created_at: str
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    progress_message: Optional[str] = None
+    error_message: Optional[str] = None
 
 class StoryResponse(BaseModel):
     """Response model for generated story content"""

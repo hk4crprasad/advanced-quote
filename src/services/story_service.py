@@ -11,6 +11,7 @@ import asyncio
 from typing import Optional, Dict, List, Tuple
 from pathlib import Path
 import concurrent.futures
+from datetime import datetime
 
 # Add video-audio directory to path
 video_audio_path = Path(__file__).parent.parent.parent / "video-audio"
@@ -41,6 +42,7 @@ except ImportError as e:
 
 from ..core.config import Config
 from ..utils.azure_utils import AzureBlobManager, FileManager
+from ..utils.job_database import JobDatabase, JobStatus
 
 class StoryService:
     """Service for generating story content with video and metadata"""
@@ -54,6 +56,139 @@ class StoryService:
             connection_string=Config.AZURE_STORAGE_CONNECTION_STRING,
             container_name=Config.AZURE_CONTAINER_NAME
         )
+        
+        # Initialize job database
+        self.job_db = JobDatabase()
+        
+    def create_story_job(self, story_type: str = "random", custom_job: Optional[str] = None, 
+                        custom_location: Optional[str] = None, custom_theme: Optional[str] = None,
+                        language: str = "Hindi") -> Dict:
+        """Create a new story generation job"""
+        try:
+            job_id = self.job_db.create_job(
+                story_type=story_type,
+                custom_job=custom_job,
+                custom_location=custom_location,
+                custom_theme=custom_theme,
+                language=language
+            )
+            
+            return {
+                "job_id": job_id,
+                "status": JobStatus.pending,
+                "message": "Story generation job created successfully",
+                "created_at": datetime.now().isoformat()
+            }
+        except Exception as e:
+            return {
+                "job_id": "",
+                "status": JobStatus.failed,
+                "message": "Failed to create story generation job",
+                "error": str(e),
+                "created_at": datetime.now().isoformat()
+            }
+    
+    def get_job_status(self, job_id: str) -> Dict:
+        """Get the status of a story generation job"""
+        try:
+            job_data = self.job_db.get_job(job_id)
+            if not job_data:
+                return {
+                    "job_id": job_id,
+                    "status": JobStatus.failed,
+                    "error_message": "Job not found"
+                }
+            
+            return {
+                "job_id": job_id,
+                "status": job_data["status"],
+                "created_at": job_data["created_at"],
+                "started_at": job_data.get("started_at"),
+                "completed_at": job_data.get("completed_at"),
+                "progress_message": self._get_progress_message(job_data["status"]),
+                "error_message": job_data.get("error_message")
+            }
+        except Exception as e:
+            return {
+                "job_id": job_id,
+                "status": JobStatus.failed,
+                "error_message": str(e)
+            }
+    
+    def get_job_result(self, job_id: str) -> Dict:
+        """Get the result of a completed story generation job"""
+        try:
+            job_data = self.job_db.get_job(job_id)
+            if not job_data:
+                return {
+                    "success": False,
+                    "message": "Job not found",
+                    "error": "Job not found"
+                }
+            
+            if job_data["status"] != JobStatus.completed:
+                return {
+                    "success": False,
+                    "message": f"Job is {job_data['status']}, not completed",
+                    "status": job_data["status"]
+                }
+            
+            return {
+                "story_text": job_data["story_text"] or "",
+                "story_type": job_data["story_type"],
+                "video_url": job_data["video_url"],
+                "audio_filename": job_data["audio_filename"],
+                "instagram_caption": job_data["instagram_caption"] or "",
+                "youtube_title": job_data["youtube_title"] or "",
+                "youtube_description": job_data["youtube_description"] or "",
+                "youtube_tags": job_data["youtube_tags"] or [],
+                "hashtags": job_data["hashtags"] or [],
+                "success": True,
+                "message": "Story generation completed successfully"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": "Failed to retrieve job result",
+                "error": str(e)
+            }
+    
+    async def process_job(self, job_id: str):
+        """Process a story generation job asynchronously"""
+        try:
+            # Get job details
+            job_data = self.job_db.get_job(job_id)
+            if not job_data:
+                return
+            
+            # Update status to in_progress
+            self.job_db.update_job_status(job_id, JobStatus.in_progress, started_at=datetime.now())
+            
+            # Generate story content
+            result = await self.generate_story_content(
+                story_type=job_data["story_type"],
+                custom_job=job_data["custom_job"],
+                custom_location=job_data["custom_location"],
+                custom_theme=job_data["custom_theme"],
+                language=job_data["language"]
+            )
+            
+            # Update job with results
+            self.job_db.update_job_result(job_id, result)
+            
+        except Exception as e:
+            # Update job as failed
+            self.job_db.update_job_status(job_id, JobStatus.failed, error_message=str(e))
+    
+    def _get_progress_message(self, status: str) -> Optional[str]:
+        """Get user-friendly progress message"""
+        messages = {
+            JobStatus.pending: "Job is waiting to be processed",
+            JobStatus.in_progress: "Generating story content and video...",
+            JobStatus.completed: "Story generation completed successfully",
+            JobStatus.failed: "Story generation failed"
+        }
+        return messages.get(status)
         
     async def generate_story_content(self, story_type: str = "random", custom_job: Optional[str] = None, 
                              custom_location: Optional[str] = None, custom_theme: Optional[str] = None,
