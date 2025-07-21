@@ -7,8 +7,10 @@ Integrates the video-audio story generation functionality
 import os
 import sys
 import random
+import asyncio
 from typing import Optional, Dict, List, Tuple
 from pathlib import Path
+import concurrent.futures
 
 # Add video-audio directory to path
 video_audio_path = Path(__file__).parent.parent.parent / "video-audio"
@@ -38,6 +40,7 @@ except ImportError as e:
         return None
 
 from ..core.config import Config
+from ..utils.azure_utils import AzureBlobManager, FileManager
 
 class StoryService:
     """Service for generating story content with video and metadata"""
@@ -46,17 +49,24 @@ class StoryService:
         self.video_output_dir = Path(__file__).parent.parent.parent / "story_videos"
         self.video_output_dir.mkdir(exist_ok=True)
         
-    def generate_story_content(self, story_type: str = "random", custom_job: Optional[str] = None, 
+        # Initialize Azure Blob Manager for video uploads
+        self.blob_manager = AzureBlobManager(
+            connection_string=Config.AZURE_STORAGE_CONNECTION_STRING,
+            container_name=Config.AZURE_CONTAINER_NAME
+        )
+        
+    async def generate_story_content(self, story_type: str = "random", custom_job: Optional[str] = None, 
                              custom_location: Optional[str] = None, custom_theme: Optional[str] = None,
                              language: str = "Hindi") -> Dict:
         """
         Generate complete story content including video, metadata, and social media content
+        This runs asynchronously to avoid blocking other API requests
         """
         try:
-            # Step 1: Generate story based on type
-            story_text = self._generate_story_by_type(story_type, custom_job, custom_location, custom_theme)
+            # Step 1: Generate story based on type (run in thread pool for CPU-bound operations)
+            story_text = await self._generate_story_by_type_async(story_type, custom_job, custom_location, custom_theme)
             
-            # Step 2: Generate video
+            # Step 2: Generate video (run in background thread)
             video_filename = f"story_{story_type}_{random.randint(1000, 9999)}.mp4"
             video_path = self.video_output_dir / video_filename
             
@@ -69,22 +79,46 @@ class StoryService:
             {story_text}
             """
             
-            # Generate video
-            video_result = complete_story_to_video_workflow(
-                styled_story, 
-                output_video=str(video_path),
-                language=language
-            )
+            # Generate video asynchronously
+            video_result = await self._generate_video_async(styled_story, str(video_path), language)
             
-            # Step 3: Generate social media metadata
-            instagram_caption = self._generate_instagram_caption(story_text, story_type)
-            youtube_title, youtube_description, youtube_tags = self._generate_youtube_metadata(story_text, story_type)
-            hashtags = self._generate_hashtags(story_type)
+            # Step 3: Upload video to Azure Blob Storage if video was generated
+            video_url = None
+            if video_result and video_path.exists():
+                try:
+                    # Generate unique filename for Azure
+                    blob_filename = FileManager.generate_filename("story_video", "mp4")
+                    
+                    # Upload to Azure Blob Storage in the video folder
+                    video_url = await self.blob_manager.upload_file_async(
+                        str(video_path), 
+                        blob_filename, 
+                        folder=Config.AZURE_VIDEO_FOLDER
+                    )
+                    
+                    # Clean up local file after successful upload
+                    FileManager.cleanup_temp_files(str(video_path))
+                    print(f"✅ Video uploaded to Azure: {video_url}")
+                    
+                except Exception as e:
+                    print(f"⚠️ Failed to upload video to Azure: {e}")
+                    # Fallback to local path if Azure upload fails
+                    video_url = str(video_path)
+            
+            # Step 4: Generate social media metadata (run in parallel)
+            instagram_caption_task = asyncio.create_task(self._generate_instagram_caption_async(story_text, story_type))
+            youtube_metadata_task = asyncio.create_task(self._generate_youtube_metadata_async(story_text, story_type))
+            hashtags_task = asyncio.create_task(self._generate_hashtags_async(story_type))
+            
+            # Wait for all metadata generation tasks to complete
+            instagram_caption = await instagram_caption_task
+            youtube_title, youtube_description, youtube_tags = await youtube_metadata_task
+            hashtags = await hashtags_task
             
             return {
                 "story_text": story_text,
                 "story_type": story_type,
-                "video_url": str(video_path) if video_result else None,
+                "video_url": video_url,  # Now returns Azure blob URL
                 "audio_filename": None,  # Could be extracted from workflow if needed
                 "instagram_caption": instagram_caption,
                 "youtube_title": youtube_title,
@@ -112,9 +146,52 @@ class StoryService:
                 "error": str(e)
             }
     
+    async def _generate_story_by_type_async(self, story_type: str, custom_job: Optional[str] = None,
+                               custom_location: Optional[str] = None, custom_theme: Optional[str] = None) -> str:
+        """Generate story based on specified type asynchronously"""
+        loop = asyncio.get_event_loop()
+        
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            if story_type == "job":
+                return await loop.run_in_executor(
+                    executor, generate_job_horror_story, custom_job, custom_location
+                )
+            elif story_type == "horror":
+                return await loop.run_in_executor(
+                    executor, generate_general_horror_story, custom_theme, custom_location
+                )
+            elif story_type == "random":
+                return await loop.run_in_executor(
+                    executor, generate_random_horror_story
+                )
+            else:
+                # Default to random if unknown type
+                return await loop.run_in_executor(
+                    executor, generate_random_horror_story
+                )
+    
+    async def _generate_video_async(self, styled_story: str, video_path: str, language: str) -> str:
+        """Generate video asynchronously in background thread"""
+        loop = asyncio.get_event_loop()
+        
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            try:
+                result = await loop.run_in_executor(
+                    executor, complete_story_to_video_workflow, styled_story, video_path, language
+                )
+                # Check if the video file was actually created
+                if result and Path(video_path).exists():
+                    return result
+                else:
+                    print(f"⚠️ Video generation completed but file not found: {video_path}")
+                    return None
+            except Exception as e:
+                print(f"❌ Video generation failed: {e}")
+                return None
+    
     def _generate_story_by_type(self, story_type: str, custom_job: Optional[str] = None,
                                custom_location: Optional[str] = None, custom_theme: Optional[str] = None) -> str:
-        """Generate story based on specified type"""
+        """Generate story based on specified type (sync version for backward compatibility)"""
         if story_type == "job":
             return generate_job_horror_story(custom_job, custom_location)
         elif story_type == "horror":
@@ -124,6 +201,33 @@ class StoryService:
         else:
             # Default to random if unknown type
             return generate_random_horror_story()
+    
+    async def _generate_instagram_caption_async(self, story_text: str, story_type: str) -> str:
+        """Generate Instagram caption with hashtags asynchronously"""
+        loop = asyncio.get_event_loop()
+        
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            return await loop.run_in_executor(
+                executor, self._generate_instagram_caption, story_text, story_type
+            )
+    
+    async def _generate_youtube_metadata_async(self, story_text: str, story_type: str) -> Tuple[str, str, List[str]]:
+        """Generate YouTube title, description, and tags asynchronously"""
+        loop = asyncio.get_event_loop()
+        
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            return await loop.run_in_executor(
+                executor, self._generate_youtube_metadata, story_text, story_type
+            )
+    
+    async def _generate_hashtags_async(self, story_type: str) -> List[str]:
+        """Generate relevant hashtags for the story type asynchronously"""
+        loop = asyncio.get_event_loop()
+        
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            return await loop.run_in_executor(
+                executor, self._generate_hashtags, story_type
+            )
     
     def _generate_instagram_caption(self, story_text: str, story_type: str) -> str:
         """Generate Instagram caption with hashtags"""

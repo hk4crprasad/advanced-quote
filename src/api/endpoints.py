@@ -249,8 +249,8 @@ class QuoteAPI:
         async def generate_story(request: StoryRequest):
             """Generate complete story content with video, captions, and metadata"""
             try:
-                # Generate story content using the story service
-                result = self.story_service.generate_story_content(
+                # Generate story content using the story service (async)
+                result = await self.story_service.generate_story_content(
                     story_type=request.story_type,
                     custom_job=request.custom_job,
                     custom_location=request.custom_location,
