@@ -28,11 +28,23 @@ from .image_vector_store import get_image_cache, ImageVectorStore
 # Set up logging
 logger = logging.getLogger(__name__)
 
-def optimized_generate_image(prompt: str, filename: str, tags: List[str] = None, story_type: str = None) -> Optional[str]:
+def optimized_generate_image(prompt: str, filename: str, tags: List[str] = None, story_type: str = None, output_dir: str = "bg_images") -> Optional[str]:
     """
     Generate image with caching optimization
     First checks vector store for similar images, only generates if not found
+    
+    Args:
+        prompt: Image generation prompt
+        filename: Base filename for the image
+        tags: Tags for categorization
+        story_type: Type of story for organization
+        output_dir: Directory to store the image (default: bg_images)
     """
+    import os
+    
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    
     image_cache = get_image_cache()
     tags = tags or []
     
@@ -48,10 +60,13 @@ def optimized_generate_image(prompt: str, filename: str, tags: List[str] = None,
         print(f"✅ Using cached image: {cached_path}")
         return cached_path
     
-    # Generate new image with unique filename
+    # Generate new image with unique filename in the specified directory
     try:
-        print(f"🔄 Generating new image: {cached_path}")
-        generated_path = original_generate_image(prompt, cached_path)
+        # Create full path with directory
+        output_path = os.path.join(output_dir, cached_path)
+        print(f"🔄 Generating new image: {output_path}")
+        
+        generated_path = original_generate_image(prompt, output_path)
         
         if generated_path:
             # Add to cache for future use
@@ -60,7 +75,7 @@ def optimized_generate_image(prompt: str, filename: str, tags: List[str] = None,
                 image_path=generated_path,
                 tags=tags,
                 story_type=story_type,
-                additional_metadata={"original_filename": filename}
+                additional_metadata={"original_filename": filename, "output_dir": output_dir}
             )
             print(f"✅ Image generated and cached: {generated_path}")
             return generated_path
@@ -70,9 +85,10 @@ def optimized_generate_image(prompt: str, filename: str, tags: List[str] = None,
             
     except Exception as e:
         logger.error(f"Failed to generate optimized image: {str(e)}")
-        # Fallback to original function
+        # Fallback to original function with proper directory
         try:
-            return original_generate_image(prompt, filename)
+            fallback_path = os.path.join(output_dir, filename)
+            return original_generate_image(prompt, fallback_path)
         except Exception as fallback_error:
             logger.error(f"Fallback image generation also failed: {str(fallback_error)}")
             return None
@@ -87,7 +103,7 @@ def cleanup_cache(min_usage: int = 1, days_old: int = 30) -> int:
     cache = ImageVectorStore()
     return cache.cleanup_old_images(min_usage, days_old)
 
-def optimized_generate_background_images(image_metadata, story_type: str = "story") -> list:
+def optimized_generate_background_images(image_metadata, story_type: str = "story", output_dir: str = "bg_images") -> list:
     """
     Generate background images with caching optimization
     Uses the vector store to reuse similar images
@@ -95,14 +111,21 @@ def optimized_generate_background_images(image_metadata, story_type: str = "stor
     Args:
         image_metadata: List of dictionaries containing image metadata
         story_type: Type of story for tagging
+        output_dir: Directory to store background images (default: bg_images)
         
     Returns:
         List of dictionaries with image_path added to each item
     """
+    import os
+    
     if not image_metadata:
         return []
     
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    
     print(f"🖼️ Optimizing background image generation with cache...")
+    print(f"📁 Storing images in: {output_dir}")
     optimized_images = []
     
     # Process each image in the metadata list
@@ -115,12 +138,13 @@ def optimized_generate_background_images(image_metadata, story_type: str = "stor
             tags.append(story_type)
             tags.append("background")
             
-            # Use optimized generation
+            # Use optimized generation with specified output directory
             image_path = optimized_generate_image(
                 prompt=prompt,
                 filename=f"bg_image_{i:03d}",
                 tags=tags,
-                story_type=story_type
+                story_type=story_type,
+                output_dir=output_dir
             )
             
             if image_path:
@@ -132,7 +156,7 @@ def optimized_generate_background_images(image_metadata, story_type: str = "stor
             else:
                 print(f"⚠️ Failed to generate/find image for: {prompt[:60]}...")
     
-    print(f"✅ Background image optimization complete: {len(optimized_images)}/{len(image_metadata)} images")
+    print(f"✅ Background image optimization complete: {len(optimized_images)}/{len(image_metadata)} images stored in {output_dir}")
     return optimized_images
 
 def extract_tags_from_prompt(prompt: str) -> List[str]:
