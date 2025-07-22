@@ -121,8 +121,9 @@ class JobDatabase:
                 json.dumps(result.get('youtube_tags', [])),
                 json.dumps(result.get('hashtags', [])),
                 JobStatus.completed if result.get('success') else JobStatus.failed,
-                datetime.now()
-            ), (job_id,))
+                datetime.now(),
+                job_id
+            ))
             conn.commit()
     
     def get_job(self, job_id: str) -> Optional[Dict]:
