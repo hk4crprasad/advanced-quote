@@ -7,3 +7,6 @@ __pycache__/
 *.pickle
 *.env
 *.json
+image_cache/*
+bg_images/*
+*.db
