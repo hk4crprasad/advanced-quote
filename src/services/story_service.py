@@ -222,21 +222,11 @@ class StoryService:
             # Generate video asynchronously with optimized image caching
             video_result = await self._generate_video_with_optimized_images_async(styled_story, str(video_path), language, story_type)
             
-            # Upload video to Azure Blob if generation was successful
-            video_url = None
-            if video_result and video_path.exists():
-                try:
-                    # Upload to Azure Blob Storage
-                    blob_name = f"{Config.AZURE_VIDEO_FOLDER}/{video_filename}"
-                    video_url = await self._upload_video_to_blob_async(str(video_path), blob_name)
-                    
-                    # Clean up local file after successful upload
-                    video_path.unlink()
-                    print(f"✅ Video uploaded to Azure: {video_url}")
-                except Exception as e:
-                    print(f"⚠️ Failed to upload video to Azure: {e}")
-                    # Keep local path as fallback
-                    video_url = str(video_path)
+            print(f"🔍 DEBUG: Video generation result: {video_result}")
+            print(f"🔍 DEBUG: Video file exists: {video_path.exists()}")
+            if video_path.exists():
+                file_size = video_path.stat().st_size
+                print(f"🔍 DEBUG: Video file size: {file_size} bytes ({file_size / (1024*1024):.2f} MB)")
             
             # Step 3: Upload video to Azure Blob Storage if video was generated
             video_url = None
@@ -244,6 +234,7 @@ class StoryService:
                 try:
                     # Generate unique filename for Azure
                     blob_filename = FileManager.generate_filename("story_video", "mp4")
+                    print(f"🔍 DEBUG: Generated blob filename: {blob_filename}")
                     
                     # Upload to Azure Blob Storage in the video folder
                     video_url = await self.blob_manager.upload_file_async(
@@ -270,6 +261,9 @@ class StoryService:
             instagram_caption = await instagram_caption_task
             youtube_title, youtube_description, youtube_tags = await youtube_metadata_task
             hashtags = await hashtags_task
+            
+            # Debug: Print the video URL before returning
+            print(f"🔍 DEBUG: Final video_url before returning: {video_url}")
             
             return {
                 "story_text": story_text,

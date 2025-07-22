@@ -104,6 +104,10 @@ class JobDatabase:
     
     def update_job_result(self, job_id: str, result: Dict):
         """Update job with generation results"""
+        print(f"🔍 DEBUG: Updating job {job_id} with result:")
+        print(f"  - video_url: {result.get('video_url', 'None')}")
+        print(f"  - success: {result.get('success', False)}")
+        
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 UPDATE story_jobs 
@@ -125,6 +129,7 @@ class JobDatabase:
                 job_id
             ))
             conn.commit()
+            print(f"✅ Job {job_id} updated in database")
     
     def get_job(self, job_id: str) -> Optional[Dict]:
         """Get job details by ID"""

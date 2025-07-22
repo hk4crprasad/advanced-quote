@@ -3,6 +3,7 @@
 Azure utility functions for blob storage and services
 """
 
+import os
 import uuid
 import tempfile
 import asyncio
@@ -40,26 +41,37 @@ class AzureBlobManager:
     async def upload_file_async(self, file_path: str, filename: str, folder: str = "") -> str:
         """Upload file asynchronously to Azure Blob Storage"""
         try:
+            print(f"🔍 DEBUG: Starting Azure upload for {file_path}")
+            print(f"  - File exists: {os.path.exists(file_path)}")
+            if os.path.exists(file_path):
+                file_size = os.path.getsize(file_path)
+                print(f"  - File size: {file_size} bytes ({file_size / (1024*1024):.2f} MB)")
+            
             loop = asyncio.get_event_loop()
             
             # Create blob path with folder
             blob_path = f"{folder}/{filename}" if folder else filename
+            print(f"  - Blob path: {blob_path}")
             
             # Upload the file
             blob_client = self.container_client.get_blob_client(blob_path)
             
             # Run the blocking upload operation in a thread pool
             def upload_blob():
+                print(f"  - Starting blob upload...")
                 with open(file_path, 'rb') as file:
                     blob_client.upload_blob(file, overwrite=True)
+                print(f"  - Blob upload completed")
             
             await loop.run_in_executor(None, upload_blob)
             
             # Return the blob URL
             blob_url = f"https://{self.blob_service_client.account_name}.blob.core.windows.net/{self.container_name}/{blob_path}"
+            print(f"✅ Azure upload successful: {blob_url}")
             return blob_url
             
         except Exception as e:
+            print(f"❌ Azure upload failed: {str(e)}")
             raise Exception(f"Failed to upload file to blob storage: {str(e)}")
     
     def delete_file(self, filename: str, folder: str = "") -> bool:
