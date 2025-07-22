@@ -43,6 +43,8 @@ except ImportError as e:
 from ..core.config import Config
 from ..utils.azure_utils import AzureBlobManager, FileManager
 from ..utils.job_database import JobDatabase, JobStatus
+from ..utils.image_vector_store import get_image_cache
+from ..utils.optimized_image_gen import optimized_generate_background_images, get_cache_stats
 
 class StoryService:
     """Service for generating story content with video and metadata"""
@@ -56,6 +58,9 @@ class StoryService:
             connection_string=Config.AZURE_STORAGE_CONNECTION_STRING,
             container_name=Config.AZURE_CONTAINER_NAME
         )
+        
+        # Initialize image cache for optimization
+        self.image_cache = get_image_cache()
         
         # Initialize job database
         self.job_db = JobDatabase()
@@ -214,8 +219,8 @@ class StoryService:
             {story_text}
             """
             
-            # Generate video asynchronously
-            video_result = await self._generate_video_async(styled_story, str(video_path), language)
+            # Generate video asynchronously with optimized image caching
+            video_result = await self._generate_video_with_optimized_images_async(styled_story, str(video_path), language, story_type)
             
             # Upload video to Azure Blob if generation was successful
             video_url = None
@@ -340,14 +345,105 @@ class StoryService:
                 print(f"❌ Video generation failed: {e}")
                 return None
     
-    async def _generate_video_async(self, styled_story: str, video_path: str, language: str) -> str:
-        """Generate video asynchronously in background thread"""
+    async def _generate_video_with_optimized_images_async(self, styled_story: str, video_path: str, language: str, story_type: str) -> str:
+        """Generate video with optimized image caching"""
         loop = asyncio.get_event_loop()
         
         with concurrent.futures.ThreadPoolExecutor() as executor:
             return await loop.run_in_executor(
-                executor, complete_story_to_video_workflow, styled_story, video_path, language
+                executor, self._optimized_video_workflow, styled_story, video_path, language, story_type
             )
+    
+    def _optimized_video_workflow(self, styled_story: str, video_path: str, language: str, story_type: str) -> str:
+        """Custom video workflow that uses image caching"""
+        try:
+            # Import video-audio functions dynamically
+            import sys
+            from pathlib import Path
+            
+            video_audio_path = Path(__file__).parent.parent.parent / "video-audio"
+            sys.path.insert(0, str(video_audio_path))
+            
+            from time1 import (
+                generate_audio_from_text, extract_timestamps, 
+                create_image_metadata_json, timestamp_to_seconds_simple
+            )
+            from video import create_video_with_background_images
+            
+            print("🎬 Starting optimized video workflow...")
+            
+            # Step 1: Generate audio
+            print("🎵 Generating audio...")
+            audio_file = generate_audio_from_text(styled_story, f"story_audio_{story_type}")
+            if not audio_file:
+                print("❌ Audio generation failed")
+                return None
+            
+            # Step 2: Extract timestamps
+            print("⏰ Extracting timestamps...")
+            json_result = extract_timestamps(audio_file, language=language)
+            if not json_result:
+                print("❌ Timestamp extraction failed")
+                return None
+            
+            # Step 3: Calculate audio duration
+            try:
+                import librosa
+                audio_data, sr = librosa.load(audio_file, sr=None)
+                total_duration = len(audio_data) / sr
+                print(f"📊 Audio duration: {total_duration:.2f} seconds")
+            except Exception as e:
+                print(f"⚠️ Duration calculation failed: {e}")
+                # Fallback: estimate from timestamps
+                try:
+                    import json as json_lib
+                    timestamp_data = json_lib.loads(json_result.strip().replace('```json', '').replace('```', ''))
+                    last_segment = max(timestamp_data, key=lambda x: timestamp_to_seconds_simple(x['time_end']))
+                    total_duration = timestamp_to_seconds_simple(last_segment['time_end'])
+                except:
+                    total_duration = 60  # Default 1 minute
+            
+            if total_duration <= 0:
+                print("❌ Invalid audio duration detected")
+                return None
+            
+            # Step 4: Create image metadata
+            print("📋 Creating image metadata...")
+            image_metadata = create_image_metadata_json(json_result, total_duration)
+            if not image_metadata:
+                print("❌ Image metadata creation failed")
+                return None
+            
+            # Step 5: Generate optimized background images
+            print("🖼️ Generating optimized background images...")
+            generated_images = optimized_generate_background_images(image_metadata, story_type)
+            if not generated_images:
+                print("⚠️ No background images generated, proceeding with basic video")
+            
+            # Step 6: Create video
+            print("🎬 Creating final video...")
+            video_result = create_video_with_background_images(
+                json_result, 
+                generated_images, 
+                video_path, 
+                audio_path=audio_file
+            )
+            
+            if video_result:
+                print(f"✅ Optimized video workflow completed: {video_result}")
+                return video_result
+            else:
+                print("❌ Video creation failed")
+                return None
+                
+        except Exception as e:
+            print(f"❌ Optimized video workflow error: {e}")
+            # Fallback to original workflow
+            try:
+                return complete_story_to_video_workflow(styled_story, video_path, language)
+            except Exception as fallback_error:
+                print(f"❌ Fallback workflow also failed: {fallback_error}")
+                return None
     
     async def _upload_video_to_blob_async(self, video_path: str, blob_name: str) -> str:
         """Upload video to Azure Blob Storage asynchronously"""
@@ -498,3 +594,36 @@ Facebook: Horror Stories Hindi
         ])
         
         return hashtags
+    
+    def get_cache_statistics(self) -> Dict:
+        """Get image cache statistics for monitoring"""
+        try:
+            stats = get_cache_stats()
+            return {
+                "success": True,
+                "cache_stats": stats,
+                "message": "Cache statistics retrieved successfully"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "cache_stats": {},
+                "message": f"Failed to get cache statistics: {str(e)}"
+            }
+    
+    def cleanup_image_cache(self, min_usage: int = 1, days_old: int = 30) -> Dict:
+        """Clean up unused images from cache"""
+        try:
+            from ..utils.optimized_image_gen import cleanup_cache
+            cleaned_count = cleanup_cache(min_usage, days_old)
+            return {
+                "success": True,
+                "cleaned_images": cleaned_count,
+                "message": f"Successfully cleaned {cleaned_count} unused images"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "cleaned_images": 0,
+                "message": f"Cache cleanup failed: {str(e)}"
+            }
