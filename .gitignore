@@ -10,3 +10,4 @@ __pycache__/
 image_cache/*
 bg_images/*
 *.db
+job_workspaces/*
