@@ -2,8 +2,78 @@ import json
 import re
 import os
 # Updated imports for MoviePy v2.0+
-from moviepy import VideoFileClip, TextClip, ColorClip, CompositeVideoClip, concatenate_videoclips, AudioFileClip, ImageClip
+from moviepy import VideoFileClip, TextClip, ColorClip, CompositeVideoClip, concatenate_videoclips, AudioFileClip, ImageClip, CompositeAudioClip
 from moviepy import vfx
+from moviepy.audio.fx import MultiplyVolume
+
+def create_audio_with_background_music(voice_audio_path, video_duration, background_music_path=None, 
+                                     voice_volume=1.0, bg_music_volume=0.15):
+    """
+    Create mixed audio with voice and background music
+    
+    Args:
+        voice_audio_path: Path to the voice audio file
+        video_duration: Duration of the video in seconds
+        background_music_path: Path to background music (defaults to horror.mp3)
+        voice_volume: Volume level for voice (1.0 = normal)
+        bg_music_volume: Volume level for background music (0.15 = very low)
+    
+    Returns:
+        AudioFileClip: Mixed audio clip
+    """
+    if not background_music_path:
+        # Default to horror.mp3 in the same directory
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        background_music_path = os.path.join(current_dir, "horror.mp3")
+    
+    try:
+        # Load voice audio
+        voice_audio = AudioFileClip(voice_audio_path)
+        if voice_volume != 1.0:
+            voice_audio = voice_audio.with_effects([MultiplyVolume(voice_volume)])
+        
+        # Check if background music exists
+        if not os.path.exists(background_music_path):
+            print(f"⚠️ Background music not found at: {background_music_path}")
+            print("Using voice audio only")
+            return voice_audio.subclipped(0, min(voice_audio.duration, video_duration))
+        
+        # Load background music
+        print(f"🎵 Adding background music: {background_music_path}")
+        bg_music = AudioFileClip(background_music_path)
+        
+        # Apply low volume to background music
+        bg_music = bg_music.with_effects([MultiplyVolume(bg_music_volume)])
+        
+        # Loop background music if it's shorter than video duration
+        if bg_music.duration < video_duration:
+            # Calculate how many loops needed
+            loops_needed = int(video_duration / bg_music.duration) + 1
+            print(f"🔄 Looping background music {loops_needed} times for {video_duration:.1f}s video")
+            
+            # Create looped background music
+            bg_music_clips = [bg_music] * loops_needed
+            bg_music = concatenate_videoclips(bg_music_clips)
+        
+        # Trim to video duration
+        voice_audio = voice_audio.subclipped(0, min(voice_audio.duration, video_duration))
+        bg_music = bg_music.subclipped(0, video_duration)
+        
+        # Mix the audio tracks
+        print(f"🎚️ Mixing audio: Voice({voice_volume:.1f}) + Background({bg_music_volume:.2f})")
+        mixed_audio = CompositeAudioClip([voice_audio, bg_music])
+        
+        return mixed_audio
+        
+    except Exception as e:
+        print(f"❌ Error creating mixed audio: {e}")
+        print("Falling back to voice audio only")
+        # Return voice audio only as fallback
+        try:
+            voice_audio = AudioFileClip(voice_audio_path)
+            return voice_audio.subclipped(0, min(voice_audio.duration, video_duration))
+        except:
+            return None
 
 def timestamp_to_seconds(timestamp):
     """Convert mm:ss.sss format to seconds"""
@@ -266,21 +336,30 @@ def create_simple_text_video(json_data, output_path="simple_text_video.mp4",
     print("Compositing video...")
     final_video = CompositeVideoClip([background] + text_clips)
     
-    # Add audio if provided
+    # Add audio with background music if provided
     if audio_path and os.path.exists(audio_path):
         try:
             print(f"Adding audio from: {audio_path}")
-            audio_clip = AudioFileClip(audio_path)
             
-            # Match audio duration to video duration if needed
-            if audio_clip.duration < total_duration:
-                print(f"Audio duration ({audio_clip.duration:.2f}s) is shorter than video ({total_duration:.2f}s)")
-            elif audio_clip.duration > total_duration:
-                print(f"Trimming audio to match video duration ({total_duration:.2f}s)")
-                audio_clip = audio_clip.subclipped(0, total_duration)
+            # Create mixed audio with background music
+            mixed_audio = create_audio_with_background_music(
+                voice_audio_path=audio_path,
+                video_duration=total_duration,
+                voice_volume=1.0,  # Normal voice volume
+                bg_music_volume=0.15  # Very low background music
+            )
             
-            final_video = final_video.with_audio(audio_clip)
-            print("✓ Audio added successfully")
+            if mixed_audio:
+                final_video = final_video.with_audio(mixed_audio)
+                print("✅ Audio with background music added successfully")
+            else:
+                # Fallback to voice only
+                audio_clip = AudioFileClip(audio_path)
+                if audio_clip.duration > total_duration:
+                    audio_clip = audio_clip.subclipped(0, total_duration)
+                final_video = final_video.with_audio(audio_clip)
+                print("✅ Voice audio added successfully (no background music)")
+                
         except Exception as e:
             print(f"⚠️ Warning: Could not add audio - {e}")
             print("Video will be created without audio")
@@ -440,18 +519,30 @@ def create_video_with_background_images(json_data, image_metadata, output_path="
     all_clips = [background_base] + background_clips + text_clips
     final_video = CompositeVideoClip(all_clips)
     
-    # Add audio if provided
+    # Add audio with background music if provided
     if audio_path and os.path.exists(audio_path):
         try:
             print(f"Adding audio from: {audio_path}")
-            audio_clip = AudioFileClip(audio_path)
             
-            if audio_clip.duration > total_duration:
-                print(f"Trimming audio to match video duration ({total_duration:.2f}s)")
-                audio_clip = audio_clip.subclipped(0, total_duration)
+            # Create mixed audio with background music
+            mixed_audio = create_audio_with_background_music(
+                voice_audio_path=audio_path,
+                video_duration=total_duration,
+                voice_volume=1.0,  # Normal voice volume
+                bg_music_volume=0.15  # Very low background music
+            )
             
-            final_video = final_video.with_audio(audio_clip)
-            print("✅ Audio added successfully")
+            if mixed_audio:
+                final_video = final_video.with_audio(mixed_audio)
+                print("✅ Audio with background music added successfully")
+            else:
+                # Fallback to voice only
+                audio_clip = AudioFileClip(audio_path)
+                if audio_clip.duration > total_duration:
+                    audio_clip = audio_clip.subclipped(0, total_duration)
+                final_video = final_video.with_audio(audio_clip)
+                print("✅ Voice audio added successfully (no background music)")
+                
         except Exception as e:
             print(f"⚠️ Warning: Could not add audio - {e}")
     
