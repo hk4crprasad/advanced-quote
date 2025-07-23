@@ -164,7 +164,10 @@ class QuoteAPI:
             """Upload video to Instagram"""
             try:
                 result = await self.orchestrator.upload_to_instagram(
-                    request.video_url, request.caption
+                    video_url=request.video_url, 
+                    caption=request.caption,
+                    access_token=request.access_token,
+                    instagram_user_id=request.instagram_user_id
                 )
                 return InstagramResponse(**result)
             except Exception as e:

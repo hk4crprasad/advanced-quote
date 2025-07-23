@@ -78,6 +78,8 @@ class InstagramUploadRequest(BaseModel):
     """Request model for Instagram upload"""
     video_url: str
     caption: str = ""
+    access_token: str
+    instagram_user_id: str
     share_to_feed: bool = True
     thumb_offset: Optional[int] = None
     location_id: Optional[str] = None

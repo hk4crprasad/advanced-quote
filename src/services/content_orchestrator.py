@@ -131,10 +131,15 @@ class ContentOrchestrator:
             "success_rate": successful / len(requests) if requests else 0.0
         }
     
-    async def upload_to_instagram(self, video_url: str, caption: str) -> Dict[str, any]:
+    async def upload_to_instagram(self, video_url: str, caption: str, access_token: str, instagram_user_id: str) -> Dict[str, any]:
         """Upload video to Instagram"""
         try:
-            result = self.instagram_service.upload_reel_complete(video_url, caption)
+            result = self.instagram_service.upload_reel_complete(
+                video_url=video_url, 
+                caption=caption,
+                access_token=access_token,
+                instagram_user_id=instagram_user_id
+            )
             return result
         except Exception as e:
             raise Exception(f"Instagram upload failed: {str(e)}")
@@ -148,7 +153,12 @@ class ContentOrchestrator:
             raise Exception("Video generation required for Instagram upload")
         
         # Upload to Instagram
-        upload_result = await self.upload_to_instagram(content.video_url, content.full_caption)
+        upload_result = await self.upload_to_instagram(
+            video_url=content.video_url, 
+            caption=content.full_caption,
+            access_token=Config.ACCESS_TOKEN,
+            instagram_user_id=Config.INSTAGRAM_USER_ID
+        )
         
         return {
             "content": content,

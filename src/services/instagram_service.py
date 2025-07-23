@@ -13,27 +13,27 @@ class InstagramService:
     """Instagram Reels API service"""
     
     def __init__(self):
-        self.access_token = Config.ACCESS_TOKEN
-        self.instagram_user_id = Config.INSTAGRAM_USER_ID
         self.base_url = Config.BASE_URL
     
     def create_reel_container(
         self, 
-        video_url: str, 
+        video_url: str,
+        access_token: str,
+        instagram_user_id: str,
         caption: str = "",
         share_to_feed: bool = True,
         thumb_offset: Optional[int] = None,
         location_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Create a reel container"""
-        endpoint = f"{self.base_url}/{self.instagram_user_id}/media"
+        endpoint = f"{self.base_url}/{instagram_user_id}/media"
         
         payload = {
             "media_type": "REELS",
             "video_url": video_url,
             "caption": caption,
             "share_to_feed": share_to_feed,
-            "access_token": self.access_token
+            "access_token": access_token
         }
         
         if thumb_offset is not None:
@@ -47,13 +47,13 @@ class InstagramService:
         
         return response.json()
     
-    def check_container_status(self, container_id: str) -> str:
+    def check_container_status(self, container_id: str, access_token: str) -> str:
         """Check the status of a container"""
         endpoint = f"{self.base_url}/{container_id}"
         
         params = {
             "fields": "status_code",
-            "access_token": self.access_token
+            "access_token": access_token
         }
         
         response = requests.get(endpoint, params=params)
@@ -62,12 +62,12 @@ class InstagramService:
         result = response.json()
         return result.get("status_code", "UNKNOWN")
     
-    def wait_for_container_ready(self, container_id: str, max_wait_minutes: int = 5) -> bool:
+    def wait_for_container_ready(self, container_id: str, access_token: str, max_wait_minutes: int = 5) -> bool:
         """Wait for container to be ready for publishing"""
         max_attempts = max_wait_minutes
         
         for attempt in range(max_attempts):
-            status = self.check_container_status(container_id)
+            status = self.check_container_status(container_id, access_token)
             
             if status == "FINISHED":
                 return True
@@ -80,13 +80,13 @@ class InstagramService:
         
         return False
     
-    def publish_reel(self, container_id: str) -> Dict[str, Any]:
+    def publish_reel(self, container_id: str, access_token: str, instagram_user_id: str) -> Dict[str, Any]:
         """Publish a reel from container"""
-        endpoint = f"{self.base_url}/{self.instagram_user_id}/media_publish"
+        endpoint = f"{self.base_url}/{instagram_user_id}/media_publish"
         
         payload = {
             "creation_id": container_id,
-            "access_token": self.access_token
+            "access_token": access_token
         }
         
         response = requests.post(endpoint, json=payload)
@@ -96,7 +96,9 @@ class InstagramService:
     
     def upload_reel_complete(
         self, 
-        video_url: str, 
+        video_url: str,
+        access_token: str,
+        instagram_user_id: str,
         caption: str = "",
         share_to_feed: bool = True,
         thumb_offset: Optional[int] = None,
@@ -106,6 +108,8 @@ class InstagramService:
         # Step 1: Create container
         container_result = self.create_reel_container(
             video_url=video_url,
+            access_token=access_token,
+            instagram_user_id=instagram_user_id,
             caption=caption,
             share_to_feed=share_to_feed,
             thumb_offset=thumb_offset,
@@ -115,11 +119,11 @@ class InstagramService:
         container_id = container_result["id"]
         
         # Step 2: Wait for ready
-        if not self.wait_for_container_ready(container_id):
+        if not self.wait_for_container_ready(container_id, access_token):
             raise Exception("Container failed to become ready for publishing")
         
         # Step 3: Publish
-        publish_result = self.publish_reel(container_id)
+        publish_result = self.publish_reel(container_id, access_token, instagram_user_id)
         
         return {
             "container_id": container_id,
